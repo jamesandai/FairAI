@@ -1,0 +1,2 @@
+# FairAI
+JNU-FairAI
