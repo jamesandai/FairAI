@@ -1,9 +1,9 @@
 import sys
-sys.path.append("../")
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 from sklearn.cluster import KMeans
 # from sklearn.externals import joblib
 import joblib
-import os
 import tensorflow as tf
 from tensorflow.python.platform import flags
 from Basic_Class.Load_Data import Load_Data

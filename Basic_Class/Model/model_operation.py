@@ -1,6 +1,8 @@
 import numpy as np
 import sys
-sys.path.append("../")
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+sys.path.append("./")
 
 import tensorflow as tf
 from tensorflow.python.platform import flags
@@ -9,7 +11,7 @@ from Basic_Class.Utils.Utils_tf import model_train, model_eval
 from Basic_Class.Model.tutorial_models import dnn
 
 FLAGS = flags.FLAGS
-path = ["../../Datasets/Numerical_Data/census","../../Datasets/Numerical_Data/credit","../../Datasets/Numerical_Data/bank"]
+path = ["./Datasets/Numerical_Data/census","./Datasets/Numerical_Data/credit","./Datasets/Numerical_Data/bank"]
 def training(dataset, model_path, nb_epochs, batch_size,learning_rate):
     """
     Train the model
@@ -59,7 +61,7 @@ def main(argv=None):
 
 if __name__ == '__main__':
     flags.DEFINE_string("dataset", "census", "the name of dataset")
-    flags.DEFINE_string("model_path", "../../Generate_Data/models/", "the name of path for saving model")
+    flags.DEFINE_string("model_path", "./Generate_Data/models/", "the name of path for saving model")
     flags.DEFINE_integer('nb_epochs', 1000, 'Number of epochs to train model')
     flags.DEFINE_integer('batch_size', 128, 'Size of training batches')
     flags.DEFINE_float('learning_rate', 0.01, 'Learning rate for training')

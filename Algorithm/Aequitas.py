@@ -1,19 +1,32 @@
 import sys
-sys.path.append("../")
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
-import numpy as np
+from Basic_Class.Model.tutorial_models import dnn
+from tensorflow.python.platform import flags,app
+import random
 import tensorflow as tf
-import copy
-from Basic_Class.Load_Data import Load_Data as LD
+import numpy as np
+from sklearn.tree import DecisionTreeClassifier
+from scipy.optimize import basinhopping
+from Basic_Class.Cluster import Cluster
 from Basic_Class.Utils.Config import census, credit, bank
+from Basic_Class.Lime import lime_tabular
+from Basic_Class.Utils.Utils_tf import model_argmax
+from Basic_Class.Load_Data import Load_Data
+from z3 import *
+from queue import PriorityQueue
+import copy
+
+
 
 class Aequitas:
-    def __init__(self,dataset, sensitive_param, model_path, max_global, max_local, step_size):
-        self.data = {"census": LD.Load_Census(), "credit": LD.Load_Credit(), "bank": LD.Load_Bank()}
-        self.data_config = {"census": census, "credit": credit, "bank": bank}
-        params = self.data_config[dataset].params
+    def __init__(self):
+        self.LD = Load_Data()
+        self.path = ["./Datasets/Numerical_Data/census", "./Datasets/Numerical_Data/credit",
+                "./Datasets/Numerical_Data/bank"]
 
-    def check_for_error_condition(self,conf, sess, x, preds, t, sens):
+    def check_for_error_condition(conf, sess, x, preds, t, sens):
         """
         Check whether the test case is an individual discriminatory instance
         :param conf: the configuration of dataset
@@ -37,6 +50,104 @@ class Aequitas:
                     return val
         return t[sens - 1]
 
+
+
+
+    class Global_Discovery:
+        def __init__(self,conf):
+            self.conf = conf
+
+        def __call__(self,x):
+            for i in range(self.conf.params):
+                x[i] = random.randint(self.conf.input_bounds[i][0], self.conf.input_bounds[i][1])
+            return x
+
+    class Local_Perturbation:
+        def __init__(self, sess, preds, x, conf, sensitive_param, param_probability, param_probability_change_size,
+                 direction_probability, direction_probability_change_size, step_size):
+            """
+            Initial function of local perturbation
+            :param sess: TF session
+            :param preds: the model's symbolic output
+            :param x: input placeholder
+            :param conf: the configuration of dataset
+            :param sensitive_param: the index of sensitive feature
+            :param param_probability: the probabilities of features
+            :param param_probability_change_size: the step size for changing probability
+            :param direction_probability: the probabilities of perturbation direction
+            :param direction_probability_change_size:
+            :param step_size: the step size of perturbation
+            """
+            self.sess = sess
+            self.preds = preds
+            self.x = x
+            self.conf = conf
+            self.sensitive_param = sensitive_param
+            self.param_probability = param_probability
+            self.param_probability_change_size = param_probability_change_size
+            self.direction_probability = direction_probability
+            self.direction_probability_change_size = direction_probability_change_size
+            self.step_size = step_size
+
+        def __call__(self, x):
+            """
+            Local perturbation
+            :param x: input instance for local perturbation
+            :return: new potential individual discriminatory instance
+            """
+            # randomly choose the feature for perturbation
+            param_choice = np.random.choice(range(self.conf.params) , p=self.param_probability)
+
+            # randomly choose the direction for perturbation
+            perturbation_options = [-1, 1]
+            direction_choice = np.random.choice(perturbation_options, p=[self.direction_probability[param_choice],
+                                                                        (1 - self.direction_probability[param_choice])])
+            if (x[param_choice] == self.conf.input_bounds[param_choice][0]) or (x[param_choice] == self.conf.input_bounds[param_choice][1]):
+                direction_choice = np.random.choice(perturbation_options)
+
+            # perturbation
+            x[param_choice] = x[param_choice] + (direction_choice * self.step_size)
+
+            # clip the generating instance with each feature to make sure it is valid
+            x[param_choice] = max(self.conf.input_bounds[param_choice][0], x[param_choice])
+            x[param_choice] = min(self.conf.input_bounds[param_choice][1], x[param_choice])
+
+            # check whether the test case is an individual discriminatory instance
+
+            ei = Aequitas.check_for_error_condition(self.conf, self.sess, self.x, self.preds, x, self.sensitive_param)
+
+            # update the probabilities of directions
+            if (ei != int(x[self.sensitive_param - 1]) and direction_choice == -1) or (not (ei != int(x[self.sensitive_param - 1])) and direction_choice == 1):
+                self.direction_probability[param_choice] = min(self.direction_probability[param_choice] +
+                                                        (self.direction_probability_change_size * self.step_size), 1)
+            elif (not (ei != int(x[self.sensitive_param - 1])) and direction_choice == -1) or (ei != int(x[self.sensitive_param - 1]) and direction_choice == 1):
+                self.direction_probability[param_choice] = max(self.direction_probability[param_choice] -
+                                                        (self.direction_probability_change_size * self.step_size), 0)
+
+            # update the probabilities of features
+            if ei != int(x[self.sensitive_param - 1]):
+                self.param_probability[param_choice] = self.param_probability[param_choice] + self.param_probability_change_size
+                self.normalise_probability()
+            else:
+                self.param_probability[param_choice] = max(self.param_probability[param_choice] - self.param_probability_change_size, 0)
+                self.normalise_probability()
+
+            return x
+
+        def normalise_probability(self):
+            """
+            Normalize the probability
+            :return: probability
+            """
+            probability_sum = 0.0
+            for prob in self.param_probability:
+                probability_sum = probability_sum + prob
+
+            for i in range(self.conf.params):
+                self.param_probability[i] = float(self.param_probability[i]) / float(probability_sum)
+
+
+
     def aequitas(self,dataset, sensitive_param, model_path, max_global, max_local, step_size):
         """
            The implementation of AEQUITAS_Fully_Connected
@@ -48,7 +159,7 @@ class Aequitas:
            :param step_size: the step size of perturbation
            :return:
            """
-        data = {"census": census_data, "credit": credit_data, "bank": bank_data}
+        data = {"census": self.LD.Load_Census(self.path[0]), "credit": self.LD.Load_Credit(self.path[1]), "bank": self.LD.Load_Bank(self.path[2])}
         data_config = {"census": census, "credit": credit, "bank": bank}
         params = data_config[dataset].params
 
@@ -62,7 +173,7 @@ class Aequitas:
         param_probability_change_size = 0.001
 
         # prepare the testing data and Algorithm
-        X, Y, input_shape, nb_classes = data[dataset]()
+        X, Y, input_shape, nb_classes = data[dataset]
         model = dnn(input_shape, nb_classes)
         x = tf.placeholder(tf.float32, shape=input_shape)
         y = tf.placeholder(tf.float32, shape=(None, nb_classes))
@@ -72,6 +183,7 @@ class Aequitas:
         config.gpu_options.per_process_gpu_memory_fraction = 0.8
         sess = tf.Session(config=config)
         saver = tf.train.Saver()
+        model_path = model_path + dataset + "/999/test.model"
         saver.restore(sess, model_path)
 
         # store the result of fairness testing
@@ -90,9 +202,91 @@ class Aequitas:
             initial_input = [3, 11, 2, 0, 0, 5, 1, 0, 0, 5, 4, 40, 1, 1, 0, 0]
         minimizer = {"method": "L-BFGS-B"}
 
+        def evaluate_local(inp):
+            """
+            Evaluate whether the test input after local perturbation is an individual discriminatory instance
+            :param inp: test input
+            :return: whether it is an individual discriminatory instance
+            """
+            result = Aequitas.check_for_error_condition(data_config[dataset], sess, x, preds, inp, sensitive_param)
+            temp = copy.deepcopy(inp.astype('int').tolist())
+            temp = temp[:sensitive_param - 1] + temp[sensitive_param:]
+            tot_inputs.add(tuple(temp))
+            if result != int(inp[sensitive_param - 1]) and (tuple(temp) not in global_disc_inputs) and (
+                tuple(temp) not in local_disc_inputs):
+                local_disc_inputs.add(tuple(temp))
+                local_disc_inputs_list.append(temp)
+            return not result
+
+        global_discovery = self.Global_Discovery(data_config[dataset])
+        local_perturbation = self.Local_Perturbation(sess, preds, x, data_config[dataset], sensitive_param, param_probability,
+                                                param_probability_change_size, direction_probability,
+                                                direction_probability_change_size, step_size)
+        length = min(max_global, len(X))
+        value_list = []
+        for i in range(length):
+            # global generation
+            inp = global_discovery.__call__(initial_input)
+            temp = copy.deepcopy(inp)
+            temp = temp[:sensitive_param - 1] + temp[sensitive_param:]
+            tot_inputs.add(tuple(temp))
+
+            result = Aequitas.check_for_error_condition(data_config[dataset], sess, x, preds, inp, sensitive_param)
+
+            # if get an individual discriminatory instance
+            if result != inp[sensitive_param - 1] and (tuple(temp) not in global_disc_inputs) and (
+                tuple(temp) not in local_disc_inputs):
+                global_disc_inputs_list.append(temp)
+                global_disc_inputs.add(tuple(temp))
+                value_list.append([inp[sensitive_param - 1], result])
+
+                # local generation
+                basinhopping(evaluate_local, inp, stepsize=1.0, take_step=local_perturbation, minimizer_kwargs=minimizer,
+                            niter=max_local)
+                print(len(global_disc_inputs), len(local_disc_inputs),
+                    "Percentage discriminatory inputs of local search- " + str(
+                        float(len(local_disc_inputs)) / float(len(tot_inputs)) * 100))
+
+        # create the folder for storing the fairness testing result
+        if not os.path.exists('./Generate_Data/results/'):
+            os.makedirs('./Generate_Data/results/')
+        if not os.path.exists('./Generate_Data/results/' + dataset + '/'):
+            os.makedirs('./Generate_Data/results/' + dataset + '/')
+        if not os.path.exists('./Generate_Data/results/'+ dataset + '/'+ str(sensitive_param) + '/'):
+            os.makedirs('./Generate_Data/results/' + dataset + '/'+ str(sensitive_param) + '/')
+
+        # storing the fairness testing result
+        np.save('./Generate_Data/results/'+dataset+'/'+ str(sensitive_param) + '/global_samples_aequitas.npy', np.array(global_disc_inputs_list))
+        np.save('./Generate_Data/results/'+dataset+'/'+ str(sensitive_param) + '/disc_value_aequitas.npy', np.array(value_list))
+        np.save('./Generate_Data/results/' + dataset + '/' + str(sensitive_param) + '/local_samples_aequitas.npy', np.array(local_disc_inputs_list))
+
+        # print the overview information of result
+        print("Total Inputs are " + str(len(tot_inputs)))
+        print("Total discriminatory inputs of global search- " + str(len(global_disc_inputs)))
+        print("Total discriminatory inputs of local search- " + str(len(local_disc_inputs)))
+        
 
 
 
+def main(argv=None):
+    FLAGS = flags.FLAGS
+    Ae = Aequitas()
+    Ae.aequitas(dataset = FLAGS.dataset,
+             sensitive_param = FLAGS.sens_param,
+             model_path = FLAGS.model_path,
+             max_global = FLAGS.max_global,
+             max_local = FLAGS.max_local,
+             step_size = FLAGS.step_size)
+    
+if __name__ == '__main__':
+    flags.DEFINE_string("dataset", "census", "the name of dataset")
+    flags.DEFINE_integer('sens_param', 9, 'sensitive index, index start from 1, 9 for gender, 8 for race')
+    flags.DEFINE_string('model_path', './Generate_Data/models/', 'the path for testing model')
+    flags.DEFINE_integer('max_global', 1000, 'number of maximum samples for global search')
+    flags.DEFINE_integer('max_local', 1000, 'number of maximum samples for local search')
+    flags.DEFINE_float('step_size', 1.0, 'step size for perturbation')
+
+    tf.app.run()
 
 
 
