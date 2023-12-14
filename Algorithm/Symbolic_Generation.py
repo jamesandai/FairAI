@@ -224,9 +224,10 @@ class Symbolic_Generation:
         config.gpu_options.per_process_gpu_memory_fraction = 0.8
         sess = tf.Session(config=config)
         saver = tf.train.Saver()
-        if not os.path.isdir(model_path + dataset):
-            os.makedirs(model_path + dataset)
+        # if not os.path.isdir(model_path + dataset):
+        #     os.makedirs(model_path + dataset)
         model_path = model_path + dataset + "/999/test.model"#模型保存地址，999是训练次数，所以会有这个文件夹，可以根据定义的训练次数来改
+    
         saver.restore(sess, model_path)#恢复模型
 
         # store the result of fairness testing
