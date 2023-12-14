@@ -1,4 +1,5 @@
 import sys
+import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 from Basic_Class.Model.tutorial_models import dnn
 from tensorflow.python.platform import flags,app
@@ -13,7 +14,6 @@ from Basic_Class.Load_Data import Load_Data
 from z3 import *
 from queue import PriorityQueue
 
-import os
 import copy
 
 
