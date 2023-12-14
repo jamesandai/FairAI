@@ -50,9 +50,6 @@ class Aequitas:
                     return val
         return t[sens - 1]
 
-
-
-
     class Global_Discovery:
         def __init__(self,conf):
             self.conf = conf
