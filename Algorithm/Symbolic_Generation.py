@@ -14,11 +14,9 @@ from Basic_Class.Load_Data import Load_Data
 from z3 import *
 from queue import PriorityQueue
 
-import os
 import copy
 
 
-FLAGS = flags.FLAGS
 
 class Symbolic_Generation:
     def __init__(self):
@@ -339,6 +337,7 @@ class Symbolic_Generation:
 
 def main(argv=None):
     SG = Symbolic_Generation()
+    FLAGS = flags.FLAGS
     SG.symbolic_generation(dataset=FLAGS.dataset,
                         sensitive_param=FLAGS.sens_param,
                         model_path=FLAGS.model_path,
