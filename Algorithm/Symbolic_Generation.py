@@ -1,5 +1,4 @@
 import sys
-import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 from Basic_Class.Model.tutorial_models import dnn
 from tensorflow.python.platform import flags,app
@@ -18,7 +17,6 @@ import os
 import copy
 
 
-FLAGS = flags.FLAGS
 
 class Symbolic_Generation:
     def __init__(self):
@@ -339,6 +337,7 @@ class Symbolic_Generation:
 
 def main(argv=None):
     SG = Symbolic_Generation()
+    FLAGS = flags.FLAGS
     SG.symbolic_generation(dataset=FLAGS.dataset,
                         sensitive_param=FLAGS.sens_param,
                         model_path=FLAGS.model_path,
