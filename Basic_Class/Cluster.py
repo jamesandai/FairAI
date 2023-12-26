@@ -1,6 +1,7 @@
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+print(sys.path)
 from sklearn.cluster import KMeans
 # from sklearn.externals import joblib
 import joblib
